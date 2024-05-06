@@ -145,24 +145,30 @@ void ClientConnection::WaitForRequests() {
       uint32_t address = (a4 << 24) | (a3 << 16) | (a2 << 8) | a1;
       uint16_t port = (p1 << 8) | p2;
       data_socket = connect_TCP(address, port);
-      fprintf(fd, "200 Data connection established\n");
+      fprintf(fd, "200 OK\n");
       fflush(fd);
 
     } else if (COMMAND("PASV")) {
-      int s = define_socket_TCP(0);
+      int socket_descriptor = define_socket_TCP(0);
       struct sockaddr_in sin;
       socklen_t len = sizeof(sin);
 
-      int value = getsockname(s, (struct sockaddr *)&sin, &len);
-			if (value < 0) {
-				errexit("Error al obtener el puerto\n");
-			}
+      getsockname(socket_descriptor, (struct sockaddr *)&sin, &len);
+			
       uint16_t port = sin.sin_port;
       int p1 = (port >> 8) & 0xFF;
 			int p2 = port & 0xFF;
 			fprintf(fd, "227 Entering passive mode (127.0.0.1, %d,%d)\n", p1, p2);
-      data_socket = accept(s, (struct sockaddr *)&sin, &len);
-  
+      data_socket = accept(socket_descriptor, (struct sockaddr *)&sin, &len);
+			len = sizeof(sin);
+			fflush(fd);
+			data_socket = accept(socket_descriptor, (struct sockaddr *)&sin, &len);
+			if (data_socket < 0) {
+				fprintf(fd, "425 Can't open data connection.\n");
+				fflush(fd);
+				return;
+			}
+
     } else if (COMMAND("STOR")) {
       fscanf(fd, "%s", arg);
 
@@ -190,7 +196,7 @@ void ClientConnection::WaitForRequests() {
 			}
     } else if (COMMAND("RETR")) {
       fscanf(fd, "%s", arg);
-			FILE *file = fopen(arg, "rb");
+			FILE *file = fopen(arg, "r");
 
 			if (file == NULL) {
 				fprintf(fd, "450 Requested file action not taken. File unavailable.\n");
@@ -208,6 +214,10 @@ void ClientConnection::WaitForRequests() {
 						break;
 					}
 				}
+				fprintf(fd, "226 Closing data connection.\n");
+				fflush(fd);
+				fclose(file);
+				close(data_socket);
 			}
     } else if (COMMAND("LIST")) {
       DIR* dir = opendir(".");
