@@ -26,26 +26,7 @@
 #include "ClientConnection.h"
 #include "common.h"
 
-int define_socket_TCP(int port) {
-  struct sockaddr_in sin;
-  int s;
-  s = socket(AF_INET, SOCK_STREAM, 0);
-
-  if (s < 0) {
-    errexit("No se puede crear el socket: %s\n", strerror(errno));
-  }
-	memset(&sin, 0, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_addr.s_addr = INADDR_ANY;
-	sin.sin_port = htons(port);
-	if (bind(s, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
-		errexit("No se puede enlazar el socket: %s\n", strerror(errno));
-	}
-	if (listen(s, 5) < 0) {
-		errexit("No se puede escuchar en el socket: %s\n", strerror(errno));
-	}
-	return s;
-}
+int define_socket_TCP(int port);
 
 // This function is executed when the thread is executed.
 void *run_client_connection(void *c) {

@@ -32,6 +32,27 @@
 
 #include "common.h"
 
+int define_socket_TCP(int port) {
+  struct sockaddr_in sin;
+  int s;
+  s = socket(AF_INET, SOCK_STREAM, 0);
+
+  if (s < 0) {
+    errexit("No se puede crear el socket: %s\n", strerror(errno));
+  }
+  memset(&sin, 0, sizeof(sin));
+  sin.sin_family = AF_INET;
+  sin.sin_addr.s_addr = INADDR_ANY;
+  sin.sin_port = htons(port);
+  if (bind(s, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+    errexit("No se puede enlazar el socket: %s\n", strerror(errno));
+  }
+  if (listen(s, 5) < 0) {
+    errexit("No se puede escuchar en el socket: %s\n", strerror(errno));
+  }
+  return s;
+}
+
 ClientConnection::ClientConnection(int s) {
   int sock = (int)(s);
 
@@ -60,9 +81,23 @@ ClientConnection::~ClientConnection() {
 }
 
 int connect_TCP(uint32_t address, uint16_t port) {
-  // Implement your code to define a socket here
+  struct sockaddr_in sin;
+  struct hostent *hent;
+  int s;
 
-  return -1;  // You must return the socket descriptor.
+  memset(&sin, 0, sizeof(sin));
+  sin.sin_family = AF_INET;
+  sin.sin_port = htons(port);
+  sin.sin_addr.s_addr = address;
+
+  s = socket(AF_INET, SOCK_STREAM, 0);
+  if (s < 0) {
+    errexit("No se puede crear el socket: %s\n", strerror(errno));
+  }
+  if (connect(s, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
+    errexit("No se puede conectar con el servidor: %s\n", strerror(errno));
+  }
+  return s;
 }
 
 void ClientConnection::stop() {
@@ -92,6 +127,8 @@ void ClientConnection::WaitForRequests() {
       fscanf(fd, "%s", arg);
       fprintf(fd, "331 User name ok, need password\n");
     } else if (COMMAND("PWD")) {
+      fprintf(fd, "257 \"/\" is the current directory\n");
+      fflush(fd);
     } else if (COMMAND("PASS")) {
       fscanf(fd, "%s", arg);
       if (strcmp(arg, "1234") == 0) {
@@ -102,15 +139,93 @@ void ClientConnection::WaitForRequests() {
       }
 
     } else if (COMMAND("PORT")) {
-      // To be implemented by students
+      int a1, a2, a3, a4, p1, p2;
+      fscanf(fd, "%d,%d,%d,%d,%d,%d", &a1, &a2, &a3, &a4, &p1, &p2);
+      printf("IP: %d.%d.%d.%d\n", a1, a2, a3, a4);
+      uint32_t address = (a4 << 24) | (a3 << 16) | (a2 << 8) | a1;
+      uint16_t port = (p1 << 8) | p2;
+      data_socket = connect_TCP(address, port);
+      fprintf(fd, "200 Data connection established\n");
+      fflush(fd);
+
     } else if (COMMAND("PASV")) {
-      // To be implemented by students
+      int s = define_socket_TCP(0);
+      struct sockaddr_in sin;
+      socklen_t len = sizeof(sin);
+
+      int value = getsockname(s, (struct sockaddr *)&sin, &len);
+			if (value < 0) {
+				errexit("Error al obtener el puerto\n");
+			}
+      uint16_t port = sin.sin_port;
+      int p1 = (port >> 8) & 0xFF;
+			int p2 = port & 0xFF;
+			fprintf(fd, "227 Entering passive mode (127.0.0.1, %d,%d)\n", p1, p2);
+      data_socket = accept(s, (struct sockaddr *)&sin, &len);
+  
     } else if (COMMAND("STOR")) {
-      // To be implemented by students
+      fscanf(fd, "%s", arg);
+
+			fprintf(fd, "150 File status okay; about to open data connection.\n");
+			fflush(fd);
+			FILE *file = fopen(arg, "wb+");
+
+			if (file == NULL) {
+				fprintf(fd, "450 Requested file action not taken. File unavailable.\n");
+				fflush(fd);
+				close(data_socket);
+				break;
+			}
+
+			fprintf(fd, "125 Data connection already open; transfer starting.\n");
+			fflush(fd);
+			char buffer[MAX_BUFF];
+
+			while (true) {
+				int bytes = read(data_socket, buffer, MAX_BUFF);
+				fwrite(buffer, 1, bytes, file);
+				if (bytes < MAX_BUFF) {
+					break;
+				}
+			}
     } else if (COMMAND("RETR")) {
-      // To be implemented by students
+      fscanf(fd, "%s", arg);
+			FILE *file = fopen(arg, "rb");
+
+			if (file == NULL) {
+				fprintf(fd, "450 Requested file action not taken. File unavailable.\n");
+				fflush(fd);
+				close(data_socket);
+			} else {
+				fprintf(fd, "150 File status okay; about to open data connection.\n");
+				fflush(fd);
+				char buffer[MAX_BUFF];
+
+				while (true) {
+					int bytes = fread(buffer, 1, MAX_BUFF, file);
+					send(data_socket, buffer, bytes, 0);
+					if (bytes < MAX_BUFF) {
+						break;
+					}
+				}
+			}
     } else if (COMMAND("LIST")) {
-      // To be implemented by students
+      DIR* dir = opendir(".");
+			if(dir == NULL) {
+				fprintf(fd, "450 Requested file action not taken. File unavailable.\n");
+				fflush(fd);
+				close(data_socket);
+			} else {
+				fprintf(fd, "-----");
+				fflush(fd);
+				struct dirent *entry;
+				while((entry = readdir(dir)) != NULL) {
+					send(data_socket, entry->d_name, strlen(entry->d_name), 0);
+				}
+				fprintf(fd, "-------");
+				closedir(dir);
+				close(data_socket);
+			}		
     } else if (COMMAND("SYST")) {
       fprintf(fd, "215 UNIX Type: L8.\n");
     }
