@@ -3,7 +3,6 @@
 
 #include <list>
 
-
 #include "ClientConnection.h"
 
 class FTPServer {
