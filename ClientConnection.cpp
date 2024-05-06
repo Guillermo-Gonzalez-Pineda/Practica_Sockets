@@ -127,8 +127,6 @@ void ClientConnection::WaitForRequests() {
       fscanf(fd, "%s", arg);
       fprintf(fd, "331 User name ok, need password\n");
     } else if (COMMAND("PWD")) {
-      fprintf(fd, "257 \"/\" is the current directory\n");
-      fflush(fd);
     } else if (COMMAND("PASS")) {
       fscanf(fd, "%s", arg);
       if (strcmp(arg, "1234") == 0) {
@@ -153,21 +151,32 @@ void ClientConnection::WaitForRequests() {
       struct sockaddr_in sin;
       socklen_t len = sizeof(sin);
 
-      getsockname(socket_descriptor, (struct sockaddr *)&sin, &len);
-			
-      uint16_t port = sin.sin_port;
-      int p1 = (port >> 8) & 0xFF;
+      int result = getsockname(socket_descriptor, (struct sockaddr *)&sin, &len);
+
+			uint16_t port = sin.sin_port;
+			int p1 = (port >> 8); // & 0xFF;
 			int p2 = port & 0xFF;
-			fprintf(fd, "227 Entering passive mode (127.0.0.1, %d,%d)\n", p1, p2);
-      data_socket = accept(socket_descriptor, (struct sockaddr *)&sin, &len);
-			len = sizeof(sin);
-			fflush(fd);
-			data_socket = accept(socket_descriptor, (struct sockaddr *)&sin, &len);
-			if (data_socket < 0) {
-				fprintf(fd, "425 Can't open data connection.\n");
+
+			if (result < 0) {
+				fprintf(fd, "421 Service not available, closing control connection.\n");
 				fflush(fd);
 				return;
 			}
+
+			fprintf(fd, "227 Entering passive mode (127,0,0,1,%d,%d)\n", p2, p1);
+
+			len = sizeof(sin);
+			fflush(fd);
+			result = accept(socket_descriptor, (struct sockaddr *)&sin, &len);
+
+			if (result < 0) {
+				fprintf(fd, "421 Service not available, closing control connection.\n");
+				fflush(fd);
+				return;
+			}
+
+			data_socket = result;
+			
 
     } else if (COMMAND("STOR")) {
       fscanf(fd, "%s", arg);
@@ -194,6 +203,11 @@ void ClientConnection::WaitForRequests() {
 					break;
 				}
 			}
+			fprintf(fd, "226 Closing data connection.\n");
+			fflush(fd);
+			fclose(file);
+			close(data_socket);
+			fflush(fd);
     } else if (COMMAND("RETR")) {
       fscanf(fd, "%s", arg);
 			FILE *file = fopen(arg, "r");
@@ -220,22 +234,17 @@ void ClientConnection::WaitForRequests() {
 				close(data_socket);
 			}
     } else if (COMMAND("LIST")) {
-      DIR* dir = opendir(".");
-			if(dir == NULL) {
-				fprintf(fd, "450 Requested file action not taken. File unavailable.\n");
-				fflush(fd);
-				close(data_socket);
-			} else {
-				fprintf(fd, "-----");
-				fflush(fd);
-				struct dirent *entry;
-				while((entry = readdir(dir)) != NULL) {
-					send(data_socket, entry->d_name, strlen(entry->d_name), 0);
-				}
-				fprintf(fd, "-------");
-				closedir(dir);
-				close(data_socket);
-			}		
+      DIR *dir = opendir(".");
+			fprintf(fd, "125 List started OK.\n");
+			struct dirent *entry;
+			while (entry = readdir(dir)) {
+				send(data_socket, entry->d_name, strlen(entry->d_name), 0);
+				send(data_socket, "\n", 1, 0);
+			}
+			fprintf(fd, "250 List completed successfully.\n");
+			closedir(dir);
+			close(data_socket);
+			
     } else if (COMMAND("SYST")) {
       fprintf(fd, "215 UNIX Type: L8.\n");
     }
