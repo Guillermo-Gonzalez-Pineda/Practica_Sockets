@@ -195,14 +195,10 @@ void ClientConnection::WaitForRequests() {
 			fprintf(fd, "125 Data connection already open; transfer starting.\n");
 			fflush(fd);
 			char buffer[MAX_BUFF];
-
-			while (true) {
-				int bytes = recv(data_socket, buffer, MAX_BUFF, 0);
-				fwrite(buffer, 1, bytes, file);
-				if (bytes < MAX_BUFF) {
-					break;
-				}
-			}
+      size_t data_to_write;
+			while ((data_to_write = recv(data_socket, buffer, sizeof(buffer), 0)) > 0) {
+        fwrite(buffer, 1, data_to_write, file);
+      }
 			fprintf(fd, "226 Closing data connection.\n");
 			fflush(fd);
 			fclose(file);
@@ -210,7 +206,7 @@ void ClientConnection::WaitForRequests() {
 			fflush(fd);
     } else if (COMMAND("RETR")) {
       fscanf(fd, "%s", arg);
-			FILE *file = fopen(arg, "r");
+			FILE *file = fopen(arg, "rb");
 
 			if (file == NULL) {
 				fprintf(fd, "450 Requested file action not taken. File unavailable.\n");
@@ -218,16 +214,12 @@ void ClientConnection::WaitForRequests() {
 				close(data_socket);
 			} else {
 				fprintf(fd, "150 File status okay; about to open data connection.\n");
-				fflush(fd);
 				char buffer[MAX_BUFF];
 
-				while (true) {
-					int bytes = recv(data_socket, buffer, MAX_BUFF, 0);
-					send(data_socket, buffer, bytes, 0);
-					if (bytes < MAX_BUFF) {
-						break;
-					}
-				}
+        size_t data_read;
+				while ((data_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+          send(data_socket, buffer, data_read, 0);
+        }
 				fprintf(fd, "226 Closing data connection.\n");
 				fflush(fd);
 				fclose(file);
