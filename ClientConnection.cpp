@@ -183,7 +183,7 @@ void ClientConnection::WaitForRequests() {
 
 			fprintf(fd, "150 File status okay; about to open data connection.\n");
 			fflush(fd);
-			FILE *file = fopen(arg, "wb+");
+			FILE *file = fopen(arg, "wb");
 
 			if (file == NULL) {
 				fprintf(fd, "450 Requested file action not taken. File unavailable.\n");
@@ -197,7 +197,7 @@ void ClientConnection::WaitForRequests() {
 			char buffer[MAX_BUFF];
 
 			while (true) {
-				int bytes = read(data_socket, buffer, MAX_BUFF);
+				int bytes = recv(data_socket, buffer, MAX_BUFF, 0);
 				fwrite(buffer, 1, bytes, file);
 				if (bytes < MAX_BUFF) {
 					break;
@@ -222,7 +222,7 @@ void ClientConnection::WaitForRequests() {
 				char buffer[MAX_BUFF];
 
 				while (true) {
-					int bytes = fread(buffer, 1, MAX_BUFF, file);
+					int bytes = recv(data_socket, buffer, MAX_BUFF, 0);
 					send(data_socket, buffer, bytes, 0);
 					if (bytes < MAX_BUFF) {
 						break;
